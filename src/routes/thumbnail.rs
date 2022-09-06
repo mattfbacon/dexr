@@ -29,13 +29,15 @@ async fn handler(
 
 	// if possible, redirect to the target of the symlink to avoid generating multiple identical thumbnails
 	if let Ok(canonical_user_path) = fs_path.strip_prefix(&config.index_root) {
-		return Ok(
-			Redirect::temporary(&crate::util::join_paths([
-				"/thumb",
-				&canonical_user_path.to_string_lossy(),
-			]))
-			.into_response(),
-		);
+		if canonical_user_path != relative_path {
+			return Ok(
+				Redirect::temporary(&crate::util::join_paths([
+					"/thumb",
+					&canonical_user_path.to_string_lossy(),
+				]))
+				.into_response(),
+			);
+		}
 	}
 
 	let encoded_path = crate::util::encode_relative_path(relative_path);
