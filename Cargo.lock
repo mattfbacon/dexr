@@ -1333,9 +1333,9 @@ dependencies = [
 
 [[package]]
 name = "static-router"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58275e409aec7902fa2814446f7e0d5c94da85d30fd8d6f4d0ebe68a532e9b49"
+checksum = "6cc299c548728151667648e23db70801b48fd8ddfd4eaf295ea0382da1768512"
 dependencies = [
  "axum",
  "http",
@@ -1345,9 +1345,9 @@ dependencies = [
 
 [[package]]
 name = "static-router-macros"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0365aa53266529d0c7ddb86cfc1c215fba9b902f1e766ca6605867de8b66c46"
+checksum = "932df7eb78aca82677462f7e234159a3c5654716a5da0e35565a990c3f47fe8c"
 dependencies = [
  "litrs",
  "proc-macro-error",
