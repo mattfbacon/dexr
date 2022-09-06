@@ -5,13 +5,15 @@ use std::path::Path;
 use std::sync::Arc;
 
 use axum::response::{IntoResponse, Response};
+use serde::Serialize;
 use tokio::sync::{watch, Mutex};
 
 mod generate;
 
 pub const SIZE: u32 = 48;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Type {
 	Image,
 	Video,

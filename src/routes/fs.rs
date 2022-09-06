@@ -130,13 +130,15 @@ struct Template<'a> {
 	sorting: Sorting,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 enum SizeType {
 	Items,
 	Bytes,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case", tag = "type", content = "value")]
 enum ThumbnailType {
 	Directory,
 	File,
@@ -164,7 +166,7 @@ impl ThumbnailType {
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct Entry {
 	name: String,
 	size: u64,
