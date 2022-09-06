@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::Write as _;
 use std::path::Path;
-use std::time::Duration;
 
 use gst::prelude::{Cast as _, ElementExt as _, GstBinExt as _, ObjectExt as _};
 use once_cell::sync::OnceCell;
@@ -16,16 +15,6 @@ mod scale_plugin;
 fn initialize_gst() {
 	gst::init().unwrap();
 	scale_plugin::plugin_register_static().unwrap();
-}
-
-#[derive(Debug)]
-enum FrameError {
-	EndOfStream,
-	GstError {
-		src: Option<String>,
-		error: String,
-		debug: Option<String>,
-	},
 }
 
 struct PipelineWrapper(pub gst::Pipeline);
@@ -54,41 +43,10 @@ impl Drop for PipelineWrapper {
 pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<(), GenerateError> {
 	GST_INIT.get_or_init(initialize_gst);
 
-	let (frame_send, frame_recv) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, FrameError>>(1);
+	let (frame_send, frame_recv) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
 
+	// wrapper will handle setting the pipeline state to Null
 	let pipeline = PipelineWrapper(create_pipeline(input));
-
-	std::thread::spawn({
-		let frame_send = frame_send.clone();
-		let bus = pipeline.bus().unwrap();
-		move || {
-			// timed_pop with None for the time blocks until there's a message
-			while let Some(message) = bus.timed_pop(None) {
-				match message.view() {
-					gst::MessageView::Eos(..) => {
-						tracing::trace!("received EOS message, sending None");
-						frame_send.try_send(Err(FrameError::EndOfStream)).unwrap();
-						break;
-					}
-					gst::MessageView::Error(error) => {
-						tracing::error!("gstreamer bus error: {error:?}");
-						frame_send
-							.try_send(Err(FrameError::GstError {
-								src: error.src().map(|src| src.to_string()),
-								error: error.error().to_string(),
-								debug: error.debug(),
-							}))
-							.unwrap();
-						break;
-					}
-					gst::MessageView::Warning(warning) => {
-						tracing::warn!("gstreamer bus warning: {warning:?}");
-					}
-					_ => (),
-				}
-			}
-		}
-	});
 
 	let sink = pipeline
 		.by_name("sink")
@@ -105,16 +63,10 @@ pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<
 					let sample = sink.pull_sample().unwrap();
 					let buffer_ref = sample.buffer().unwrap();
 					let buffer = buffer_ref.map_readable().unwrap();
-					frame_send.try_send(Ok(buffer.to_vec())).unwrap();
+					// ignore extra frames; we only need the first
+					let _ = frame_send.try_send(buffer.to_vec());
 					// stop after one frame
 					Err(gst::FlowError::Eos)
-				}
-			})
-			.eos({
-				let frame_send = frame_send.clone();
-				move |_sink| {
-					tracing::trace!("end-of-stream callback called");
-					frame_send.try_send(Err(FrameError::EndOfStream)).unwrap();
 				}
 			})
 			.build(),
@@ -124,17 +76,29 @@ pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<
 	tracing::trace!("starting pipeline");
 	pipeline.set_state(gst::State::Playing).unwrap();
 
+	let bus = pipeline.bus().unwrap();
+	// timed_pop with None for the time blocks until there's a message
+	while let Some(message) = bus.timed_pop(None) {
+		match message.view() {
+			gst::MessageView::Eos(..) => {
+				tracing::trace!("received EOS message, sending None");
+				break;
+			}
+			gst::MessageView::Error(error) => {
+				tracing::error!("gstreamer bus error: {error:?}");
+				return Err(GenerateError::Custom("gstreamer error"));
+			}
+			gst::MessageView::Warning(warning) => {
+				tracing::warn!("gstreamer bus warning: {warning:?}");
+			}
+			_ => (),
+		}
+	}
+
 	tracing::trace!("receiving frame from pipeline");
 	let frame = frame_recv
-		.recv_timeout(Duration::from_secs(5))
-		.map_err(|_| GenerateError::Custom("thumbnail generation timed out"))?
-		.map_err(|error| match error {
-			FrameError::EndOfStream => GenerateError::Custom("video has no frames"),
-			FrameError::GstError { .. } => {
-				tracing::error!("gst error: {error:?}");
-				GenerateError::Custom("gstreamer error")
-			}
-		})?;
+		.try_recv()
+		.map_err(|_| GenerateError::Custom("video has no frames"))?;
 
 	tracing::trace!("writing frame to output");
 	output.write_all(&frame).map_err(io_ctx("writing output"))?;
