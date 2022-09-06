@@ -1,0 +1,79 @@
+<% let url = join_paths(["/fs", &title]); %>
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title><%= title %></title>
+		<style>
+			#entries {
+				width: 100%;
+				border: 0;
+				border-collapse: collapse;
+				line-height: 1.5;
+			}
+			.entry-name {
+				text-align: left;
+			}
+			.entry-size, .entry-mtime {
+				text-align: right;
+			}
+			#entries tbody tr:nth-child(odd) {
+				background-color: #eee;
+			}
+			#entries td, #entries tr {
+				padding-left: 0.2rem;
+				padding-right: 0.2rem;
+			}
+			#entries th a {
+				color: inherit;
+			}
+			.entry-thumbnail {
+				width: 1rem;
+				white-space: nowrap;
+			}
+			.entry-thumbnail img {
+				max-height: 2ex;
+				max-width: 2ex;
+				overflow: visible;
+				display: block;
+			}
+			#entries th.sort_ascending::after {
+				content: " ^";
+				font-weight: normal;
+			}
+			#entries th.sort_descending::after {
+				content: " v";
+				font-weight: normal;
+			}
+		</style>
+	</head>
+	<body>
+		<% if title != "/" { %> <a href="<%= url.rsplit_once('/').unwrap().0 %>">Go up</a> <% } %>
+		<table id="entries">
+			<thead>
+				<tr>
+					<th class="entry-thumbnail"></th>
+					<th class="entry-name <%= sorting.class_for(SortBy::Name) %>"><a href="<%= sorting.link_for(SortBy::Name) %>">Name</a></th>
+					<th class="entry-size <%= sorting.class_for(SortBy::Size) %>"><a href="<%= sorting.link_for(SortBy::Size) %>">Size</a></th>
+					<th class="entry-mtime <%= sorting.class_for(SortBy::MTime) %>"><a href="<%= sorting.link_for(SortBy::MTime) %>">MTime</a></th>
+				</tr>
+			</thead>
+			<tbody>
+				<% for entry in entries.iter() { %>
+				<tr>
+					<td class="entry-thumbnail"><img src="<%= entry.thumbnail.url(|| join_paths(["/thumb", &title, &entry.name])) %>" alt="<%= entry.thumbnail.alt() %>" <% if entry.link { %> class="icon-link" <% } %>></td>
+					<td class="entry-name">
+						<% let entry_url = join_paths([url.as_str(), &entry.name]); %>
+						<a href="<%= entry_url %>"><%= entry.name %></a>
+					</td>
+					<td class="entry-size" <% if entry.link { %>title = "This applies to the file or directory that the link points to, not the link itself"<% } %>><% if let SizeType::Bytes = entry.size_type { %><%= display_bytes(entry.size) | disp %><% } else { %><%= display_items(entry.size) | disp %><% } %><% if entry.link { %>*<% } %></td>
+					<td class="entry-mtime"><%= time::OffsetDateTime::from_unix_timestamp(entry.mtime).unwrap().format(time::macros::format_description!("[year]-[month]-[day] [hour padding:zero repr:24]:[minute padding:zero]:[second padding:zero]Z")).unwrap() | disp %></td>
+				</tr>
+				<% } %>
+			</tbody>
+		</table>
+		<% if entries.is_empty() { %> (No Entries) <% } %>
+	</body>
+</html>
