@@ -1,0 +1,2 @@
+use flock rather than an active tracker for thumbnail generation
+static-router: use etags and/or mtimes to avoid refetching
