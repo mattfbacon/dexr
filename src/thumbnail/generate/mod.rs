@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write as _;
 use std::path::Path;
+use std::sync::Arc;
 
 use gst::prelude::{Cast as _, ElementExt as _, GstBinExt as _, ObjectExt as _};
 use once_cell::sync::OnceCell;
@@ -43,7 +44,7 @@ impl Drop for PipelineWrapper {
 pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<(), GenerateError> {
 	GST_INIT.get_or_init(initialize_gst);
 
-	let (frame_send, frame_recv) = std::sync::mpsc::sync_channel::<Vec<u8>>(1);
+	let frame = Arc::new(atomic_refcell::AtomicRefCell::new(None));
 
 	// wrapper will handle setting the pipeline state to Null
 	let pipeline = PipelineWrapper(create_pipeline(input));
@@ -57,48 +58,74 @@ pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<
 	sink.set_callbacks(
 		gst_app::AppSinkCallbacks::builder()
 			.new_sample({
-				let frame_send = frame_send.clone();
+				let frame = Arc::clone(&frame);
 				move |sink| {
-					tracing::trace!("new_sample callback called");
 					let sample = sink.pull_sample().unwrap();
-					let buffer_ref = sample.buffer().unwrap();
-					let buffer = buffer_ref.map_readable().unwrap();
-					// ignore extra frames; we only need the first
-					let _ = frame_send.try_send(buffer.to_vec());
-					// stop after one frame
+
+					let mut frame = frame.borrow_mut();
+					// don't process the sample if we already have one
+					if frame.is_none() {
+						let buffer_ref = sample.buffer().unwrap();
+						let buffer = buffer_ref.map_readable().unwrap();
+						*frame = Some(buffer.to_vec());
+					}
+
+					// try to stop the pipeline after one frame
 					Err(gst::FlowError::Eos)
 				}
 			})
 			.build(),
 	);
-	drop(frame_send);
 
 	tracing::trace!("starting pipeline");
 	pipeline.set_state(gst::State::Playing).unwrap();
 
 	let bus = pipeline.bus().unwrap();
 	// timed_pop with None for the time blocks until there's a message
+	tracing::trace!("starting gstreamer bus message read loop");
 	while let Some(message) = bus.timed_pop(None) {
 		match message.view() {
 			gst::MessageView::Eos(..) => {
-				tracing::trace!("received EOS message, sending None");
+				tracing::trace!("received EOS message, breaking out of message read loop");
 				break;
 			}
 			gst::MessageView::Error(error) => {
-				tracing::error!("gstreamer bus error: {error:?}");
-				return Err(GenerateError::Custom("gstreamer error"));
+				tracing::error!(
+					"gstreamer error:\n{}",
+					error
+						.debug()
+						.as_deref()
+						.unwrap_or("(no debug message)")
+						.trim()
+				);
+				let message = if error.debug().map_or(false, |debug| {
+					debug.contains("no suitable plugins found") && debug.contains("Missing decoder")
+				}) {
+					"file format not supported"
+				} else {
+					"gstreamer error"
+				};
+				return Err(GenerateError::Custom(message));
 			}
 			gst::MessageView::Warning(warning) => {
-				tracing::warn!("gstreamer bus warning: {warning:?}");
+				tracing::warn!(
+					"gstreamer warning:\n{}",
+					warning
+						.debug()
+						.as_deref()
+						.unwrap_or("(no debug message)")
+						.trim()
+				);
 			}
 			_ => (),
 		}
 	}
 
 	tracing::trace!("receiving frame from pipeline");
-	let frame = frame_recv
-		.try_recv()
-		.map_err(|_| GenerateError::Custom("video has no frames"))?;
+	let frame = frame
+		.borrow_mut()
+		.take()
+		.ok_or(GenerateError::Custom("video has no frames"))?;
 
 	tracing::trace!("writing frame to output");
 	output.write_all(&frame).map_err(io_ctx("writing output"))?;
@@ -107,10 +134,27 @@ pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<
 
 fn create_pipeline(input: &Path) -> gst::Pipeline {
 	let input = input.to_string_lossy();
-	let description = format!("uridecodebin uri=file://{input} ! videoscale ! videoconvert ! thumbnailscale ! pngenc ! appsink name=sink");
-	tracing::trace!(pipeline = description, "launching gstreamer pipeline");
-	gst::parse_launch(&description)
-		.expect("invalid pipeline")
-		.downcast::<gst::Pipeline>()
-		.unwrap()
+	let location = format!("location={input}");
+	tracing::trace!("launching gstreamer pipeline");
+	gst::parse_launchv(&[
+		"filesrc",
+		&location,
+		"!",
+		"decodebin",
+		"!",
+		"videoscale",
+		"!",
+		"videoconvert",
+		"!",
+		"thumbnailscale",
+		"!",
+		"pngenc",
+		"snapshot=false",
+		"!",
+		"appsink",
+		"name=sink",
+	])
+	.expect("invalid pipeline")
+	.downcast::<gst::Pipeline>()
+	.unwrap()
 }
