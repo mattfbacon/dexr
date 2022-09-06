@@ -22,6 +22,7 @@ let preview_current = null;
 function preview_open(idx) {
 	preview_current_index = idx;
 	preview_current = entries[idx];
+	location.hash = preview_current.name;
 	const preview_type = preview_current.thumbnail.value;
 	previewPositionCurrent.innerText = idx + 1;
 	window.previewItem?.remove();
@@ -57,6 +58,7 @@ function preview_open(idx) {
 }
 
 function preview_close() {
+	location.hash = "";
 	fullscreen_exit();
 	slideshow_stop();
 	preview_current_index = null;
@@ -115,6 +117,14 @@ function preview_next() {
 		preview_first();
 	} else {
 		preview_open(idx);
+	}
+}
+
+if (location.hash) {
+	const file = decodeURIComponent(location.hash.slice(1));
+	const index = entries.findIndex((entry) => entry.name === file);
+	if (index !== -1) {
+		preview_open(index);
 	}
 }
 
