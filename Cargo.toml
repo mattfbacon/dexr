@@ -9,6 +9,7 @@ atomic_refcell = "0.1"
 axum = "0.5"
 base64 = "0.13"
 bindable = { version = "0.1", features = ["with-serde"] }
+crossbeam-channel = "0.5"
 figment = { version = "0.10", features = ["toml", "env"] }
 futures = "0.3"
 gstreamer = { version = "0.18", features = ["v1_20"] }

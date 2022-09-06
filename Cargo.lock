@@ -251,6 +251,7 @@ dependencies = [
  "axum",
  "base64",
  "bindable",
+ "crossbeam-channel",
  "figment",
  "futures",
  "gstreamer",
