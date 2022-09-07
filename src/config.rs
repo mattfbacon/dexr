@@ -11,6 +11,12 @@ pub struct Config {
 	pub thumbnail_tmp: PathBuf,
 	#[serde(default)]
 	pub log_level: LevelFilter,
+	#[serde(default = "default_exclude_dotfiles")]
+	pub exclude_dotfiles: bool,
+}
+
+const fn default_exclude_dotfiles() -> bool {
+	true
 }
 
 #[derive(Deserialize, Debug, Default, Clone, Copy)]

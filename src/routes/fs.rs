@@ -1,5 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 use std::os::linux::fs::MetadataExt as _;
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -104,6 +105,10 @@ pub async fn handler(
 			))
 	);
 
+	if config.exclude_dotfiles && super::is_hidden_path(&user_path) {
+		return Ok(http::StatusCode::NOT_FOUND.into_response());
+	}
+
 	let relative_path = user_path.strip_prefix("/").unwrap();
 	let fs_path = config.index_root.join(&relative_path);
 	let metadata = tokio::fs::metadata(&fs_path)
@@ -111,9 +116,14 @@ pub async fn handler(
 		.map_err(io_ctx("reading metadata"))?;
 
 	if metadata.is_dir() {
-		index_directory(&user_path.to_string_lossy(), &fs_path, sorting)
-			.await
-			.map(IntoResponse::into_response)
+		index_directory(
+			&user_path.to_string_lossy(),
+			&fs_path,
+			sorting,
+			config.exclude_dotfiles,
+		)
+		.await
+		.map(IntoResponse::into_response)
 	} else {
 		send_file_directly(request, fs_path)
 			.await
@@ -232,15 +242,19 @@ fn display_items(items: u64) -> impl Display {
 	Helper(items)
 }
 
-async fn get_entries(fs_path: &Path) -> std::io::Result<Vec<Entry>> {
+async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<Vec<Entry>> {
 	let ret = FuturesUnordered::new();
 
 	let mut entries = tokio::fs::read_dir(fs_path).await?;
 
 	while let Some(entry) = entries.next_entry().await? {
+		let name = entry.file_name();
+		if exclude_dotfiles && super::starts_with_dot(&name) {
+			continue;
+		}
 		ret.push(async move {
 			let maybe_symlink_metadata = entry.metadata().await?;
-			let name = entry.file_name().to_string_lossy().into_owned();
+			let name = name.to_string_lossy().into_owned();
 			let symlink = maybe_symlink_metadata.is_symlink();
 
 			let (path, metadata) = if symlink {
@@ -299,8 +313,9 @@ async fn index_directory(
 	user_path: &str,
 	fs_path: &Path,
 	sorting: Sorting,
+	exclude_dotfiles: bool,
 ) -> Result<impl IntoResponse, ErrorResponse> {
-	let mut entries = get_entries(fs_path)
+	let mut entries = get_entries(fs_path, exclude_dotfiles)
 		.await
 		.map_err(io_ctx("reading directory"))?;
 

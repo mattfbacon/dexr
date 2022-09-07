@@ -17,3 +17,15 @@ pub fn configure() -> Router {
 }
 
 static_router::static_router!(static_router, "static");
+
+fn is_hidden_path(path: &std::path::Path) -> bool {
+	path
+		.components()
+		.any(|component| starts_with_dot(component.as_os_str()))
+}
+
+fn starts_with_dot(name: &std::ffi::OsStr) -> bool {
+	std::os::unix::ffi::OsStrExt::as_bytes(name)
+		.first()
+		.map_or(false, |&byte| byte == b'.')
+}

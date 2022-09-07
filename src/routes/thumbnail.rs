@@ -18,6 +18,10 @@ async fn handler(
 	extract::Extension(thumbnail_state): extract::Extension<Arc<crate::thumbnail::State>>,
 	req: Request<Body>,
 ) -> Result<Response, ErrorResponse> {
+	if config.exclude_dotfiles && super::is_hidden_path(&user_path) {
+		return Ok(http::StatusCode::NOT_FOUND.into_response());
+	}
+
 	let relative_path = user_path.strip_prefix("/").unwrap();
 	let fs_path = config.index_root.join(relative_path);
 	let fs_path = tokio::fs::canonicalize(fs_path)
