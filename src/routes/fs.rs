@@ -1,6 +1,5 @@
 use std::fmt::{self, Display, Formatter};
 use std::os::linux::fs::MetadataExt as _;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
