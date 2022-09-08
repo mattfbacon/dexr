@@ -11,7 +11,7 @@ base64 = "0.13"
 bindable = { version = "0.1", features = ["with-serde"] }
 figment = { version = "0.10", features = ["toml", "env"] }
 futures = "0.3"
-gstreamer = { version = "0.18", features = ["v1_20"] }
+gstreamer = "0.18"
 gstreamer-app = "0.18"
 gstreamer-video = "0.18"
 http = "0.2"

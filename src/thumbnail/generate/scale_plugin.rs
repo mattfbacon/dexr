@@ -111,11 +111,8 @@ impl ObjectImpl for ScaleElementImpl {
 	fn constructed(&self, obj: &Self::Type) {
 		self.parent_constructed(obj);
 
-		let specify_size = gst::ElementFactory::make_with_properties(
-			"capsfilter",
-			&[("caps", &gst::Caps::new_simple("video/x-raw", &[]))],
-		)
-		.unwrap();
+		let specify_size = gst::ElementFactory::make("capsfilter", None).unwrap();
+		specify_size.set_properties(&[("caps", &gst::Caps::new_simple("video/x-raw", &[]))]);
 
 		obj.add_many(&[&specify_size]).unwrap();
 
