@@ -21,18 +21,6 @@ gst::plugin_define!(
 	""
 );
 
-/*
-struct Struct1 {
-	element: gst::Bin,
-	width: i32,
-	height: i32,
-}
-
-struct Struct1Class {
-	parent_class: glib::object::Class<gst::Bin>,
-}
-*/
-
 struct Data {
 	capsfilter: gst::Element,
 }
