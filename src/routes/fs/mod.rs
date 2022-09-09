@@ -11,21 +11,19 @@ use futures::TryStreamExt as _;
 use http::Request;
 use hyper::service::Service as _;
 use hyper::Body;
-use sailfish::TemplateOnce;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::error::{self, io_ctx};
 use crate::thumbnail::Type as RichType;
 
+mod template;
+
 impl SortBy {
 	fn compare(self, a: &Entry, b: &Entry) -> std::cmp::Ordering {
 		match self {
 			Self::Name => a.name.cmp(&b.name),
-			Self::Size => a
-				.size_type
-				.cmp(&b.size_type)
-				.then_with(|| a.size.cmp(&b.size)),
+			Self::Size => a.size.cmp(&b.size),
 			Self::MTime => a.mtime.cmp(&b.mtime),
 		}
 	}
@@ -66,7 +64,19 @@ pub struct Sorting {
 }
 
 impl Sorting {
-	fn link_for(self, for_column: SortBy) -> String {
+	fn both_for(self, for_column: SortBy) -> (impl Display, &'static str) {
+		(self.link_for(for_column), self.class_for(for_column))
+	}
+
+	fn link_for(self, for_column: SortBy) -> impl Display {
+		struct Helper(Sorting);
+
+		impl Display for Helper {
+			fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+				write!(fmt, "?{}", serde_urlencoded::to_string(self.0).unwrap())
+			}
+		}
+
 		let by = for_column;
 		let order = if self.by == for_column {
 			self.order.reverse()
@@ -74,7 +84,8 @@ impl Sorting {
 			SortOrder::default()
 		};
 		let new_sorting = Self { by, order };
-		format!("?{}", serde_urlencoded::to_string(new_sorting).unwrap())
+
+		Helper(new_sorting)
 	}
 
 	fn class_for(self, for_column: SortBy) -> &'static str {
@@ -116,7 +127,7 @@ pub async fn handler(
 
 	if metadata.is_dir() {
 		index_directory(
-			&user_path.to_string_lossy(),
+			user_path.to_string_lossy().into_owned(),
 			&fs_path,
 			sorting,
 			config.exclude_dotfiles,
@@ -130,20 +141,47 @@ pub async fn handler(
 	}
 }
 
-use crate::util::join_paths; // for the template
-#[derive(sailfish::TemplateOnce)]
-#[template(path = "index.stpl")]
-struct Template<'a> {
-	title: &'a str,
-	entries: Vec<Entry>,
-	sorting: Sorting,
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Clone, Copy)]
+#[serde(rename_all = "snake_case", tag = "size_type", content = "size")]
+enum Size {
+	Items(u64),
+	Bytes(u64),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum SizeType {
-	Items,
-	Bytes,
+impl Display for Size {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+		fn scale(size: u64) -> Option<(f64, &'static str)> {
+			let size = az::checked_cast::<_, f64>(size)?;
+			let magnitude: u32 = az::checked_cast(size.log(az::unwrapped_cast(INCREMENT)).floor())?;
+			let scaled = size / az::checked_cast::<_, f64>(INCREMENT.pow(magnitude))?;
+			let suffix = SI_SUFFIXES.get(magnitude as usize)?;
+			Some((scaled, suffix))
+		}
+
+		const SI_SUFFIXES: &[&str] = &["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+		const INCREMENT: u64 = 1000;
+
+		match *self {
+			// avoid taking the logarithm of zero, or printing a decimal point for exact bytes
+			Self::Bytes(small @ 0..=INCREMENT) => {
+				write!(formatter, "{small} B")
+			}
+			Self::Bytes(size) => match scale(size) {
+				Some((scaled, suffix)) => {
+					write!(formatter, "{scaled:.1} {suffix}")
+				}
+				None => write!(formatter, "too big"),
+			},
+			Self::Items(items) => {
+				write!(
+					formatter,
+					"{} {}",
+					items,
+					if items == 1 { "item" } else { "items" }
+				)
+			}
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -173,72 +211,21 @@ impl ThumbnailType {
 			Self::Rich(..) => "rich thumbnail",
 		}
 	}
+
+	#[must_use]
+	fn is_rich(self) -> bool {
+		matches!(self, Self::Rich(..))
+	}
 }
 
 #[derive(Debug, Serialize)]
 struct Entry {
 	name: String,
-	size: u64,
-	size_type: SizeType,
+	#[serde(flatten)]
+	size: Size,
 	mtime: i64,
 	thumbnail: ThumbnailType,
 	link: bool,
-}
-
-#[allow(
-	clippy::cast_possible_truncation,
-	clippy::cast_sign_loss,
-	clippy::cast_precision_loss
-)] // false positives
-fn display_bytes(size: u64) -> impl Display {
-	const NAMES: &[&str] = &["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-	const INCREMENT: u64 = 1000;
-
-	enum Helper {
-		Small(u64),
-		Normal { scaled: f64, suffix: &'static str },
-		TooBig,
-	}
-
-	impl Display for Helper {
-		fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-			match self {
-				Self::Small(amount) => write!(formatter, "{amount} B"),
-				Self::Normal { scaled, suffix } => write!(formatter, "{scaled:.1} {suffix}"),
-				Self::TooBig => write!(formatter, "too big"),
-			}
-		}
-	}
-
-	// avoid taking the logarithm of zero, or printing a decimal point for exact bytes
-	if size < INCREMENT {
-		return Helper::Small(size);
-	}
-
-	let size = size as f64;
-	let magnitude = (size as f64).log(INCREMENT as f64).floor() as u32;
-	let scaled = size / (INCREMENT.pow(magnitude) as f64);
-	NAMES
-		.get(magnitude as usize)
-		.map_or(Helper::TooBig, |suffix| Helper::Normal { scaled, suffix })
-}
-
-fn display_items(items: u64) -> impl Display {
-	struct Helper(u64);
-
-	impl Display for Helper {
-		fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-			let items = self.0;
-			write!(
-				formatter,
-				"{} {}",
-				items,
-				if items == 1 { "item" } else { "items" }
-			)
-		}
-	}
-
-	Helper(items)
 }
 
 async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<Vec<Entry>> {
@@ -265,7 +252,7 @@ async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<
 				(entry.path(), maybe_symlink_metadata)
 			};
 
-			let (thumbnail, size, size_type) = if metadata.is_dir() {
+			let (thumbnail, size) = if metadata.is_dir() {
 				let mut dir_entries = tokio::fs::read_dir(&path).await?;
 				let stream = poll_fn(|ctx| dir_entries.poll_next_entry(ctx).map(Result::transpose));
 				let mut count = 0;
@@ -275,7 +262,7 @@ async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<
 						async { Ok(()) }
 					})
 					.await?;
-				(ThumbnailType::Directory, count, SizeType::Items)
+				(ThumbnailType::Directory, Size::Items(count))
 			} else {
 				let extension = path.extension().and_then(std::ffi::OsStr::to_str);
 				let thumbnail = extension
@@ -291,13 +278,12 @@ async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<
 						ThumbnailType::Rich,
 					);
 
-				(thumbnail, metadata.len(), SizeType::Bytes)
+				(thumbnail, Size::Bytes(metadata.len()))
 			};
 
 			std::io::Result::Ok(Entry {
 				name,
 				size,
-				size_type,
 				mtime: metadata.st_mtime(),
 				thumbnail,
 				link: symlink,
@@ -309,11 +295,11 @@ async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<
 }
 
 async fn index_directory(
-	user_path: &str,
+	user_path: String,
 	fs_path: &Path,
 	sorting: Sorting,
 	exclude_dotfiles: bool,
-) -> Result<impl IntoResponse, ErrorResponse> {
+) -> Result<Response, ErrorResponse> {
 	let mut entries = get_entries(fs_path, exclude_dotfiles)
 		.await
 		.map_err(io_ctx("reading directory"))?;
@@ -326,16 +312,17 @@ async fn index_directory(
 		}
 	});
 
-	Ok((
-		[(http::header::CONTENT_TYPE, "text/html")],
-		Template {
-			title: user_path,
-			entries,
-			sorting,
-		}
-		.render_once()
-		.unwrap(),
-	))
+	Ok(
+		(
+			[(http::header::CONTENT_TYPE, "text/html")],
+			template::Template {
+				title: &user_path,
+				entries: &entries,
+				sorting,
+			},
+		)
+			.into_response(),
+	)
 }
 
 async fn send_file_directly(
