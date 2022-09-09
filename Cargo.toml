@@ -1,6 +1,9 @@
 [package]
+description = "A directory indexer with thumbnails, previews, and slideshow functionality."
 edition = "2021"
+license = "AGPL-3.0-or-later"
 name = "dexr"
+repository = "https://github.com/mattfbacon/dexr"
 version = "0.4.0"
 
 [dependencies]
