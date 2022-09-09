@@ -110,6 +110,7 @@ impl ObjectImpl for ScaleElementImpl {
 				.unwrap();
 		// I believe this is unsafe because it could cause the existing function to not be called, resulting in some kind of UB.
 		// however, we make sure to call `gst::Pad::event_default` in the handler so that won't be an issue.
+		#[allow(unsafe_code)]
 		unsafe {
 			sink_pad.set_event_function(sink_event_handler);
 		}

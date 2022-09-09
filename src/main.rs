@@ -15,6 +15,7 @@
 	unused_qualifications
 )]
 #![warn(clippy::pedantic)]
+#![deny(unsafe_code)]
 #![allow(clippy::let_underscore_drop, clippy::unused_async)]
 
 use anyhow::{Context as _, Result};
