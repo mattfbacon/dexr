@@ -87,6 +87,7 @@ a.has-preview {
 	justify-content: center;
 	position: relative;
 	margin: 1rem;
+	max-height: calc(100vh - 4.8rem);
 }
 
 #previewItem {
