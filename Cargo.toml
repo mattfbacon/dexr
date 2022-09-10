@@ -4,7 +4,7 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 name = "dexr"
 repository = "https://github.com/mattfbacon/dexr"
-version = "0.4.1"
+version = "0.4.2"
 
 [dependencies]
 anyhow = "1"
