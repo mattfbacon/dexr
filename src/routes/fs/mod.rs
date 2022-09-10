@@ -7,7 +7,7 @@ use axum::extract;
 use axum::response::{ErrorResponse, IntoResponse, Response};
 use axum::routing::{get, Router};
 use futures::stream::{poll_fn, FuturesUnordered};
-use futures::TryStreamExt as _;
+use futures::{FutureExt as _, TryStreamExt as _};
 use http::Request;
 use hyper::service::Service as _;
 use hyper::Body;
@@ -229,6 +229,11 @@ struct Entry {
 }
 
 async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<Vec<Entry>> {
+	enum Error {
+		Tokio(tokio::task::JoinError),
+		Io(std::io::Error),
+	}
+
 	let ret = FuturesUnordered::new();
 
 	let mut entries = tokio::fs::read_dir(fs_path).await?;
@@ -238,60 +243,71 @@ async fn get_entries(fs_path: &Path, exclude_dotfiles: bool) -> std::io::Result<
 		if exclude_dotfiles && super::starts_with_dot(&name) {
 			continue;
 		}
-		ret.push(async move {
-			let maybe_symlink_metadata = entry.metadata().await?;
-			let name = name.to_string_lossy().into_owned();
-			let symlink = maybe_symlink_metadata.is_symlink();
+		ret.push(
+			tokio::spawn(async move {
+				let maybe_symlink_metadata = entry.metadata().await?;
+				let name = name.to_string_lossy().into_owned();
+				let symlink = maybe_symlink_metadata.is_symlink();
 
-			let (path, metadata) = if symlink {
-				let canonical = tokio::fs::canonicalize(entry.path()).await?;
-				let canonical_metadata = tokio::fs::metadata(&canonical).await?;
-				(canonical, canonical_metadata)
-			} else {
-				// not symlink metadata
-				(entry.path(), maybe_symlink_metadata)
-			};
+				let (path, metadata) = if symlink {
+					let canonical = tokio::fs::canonicalize(entry.path()).await?;
+					let canonical_metadata = tokio::fs::metadata(&canonical).await?;
+					(canonical, canonical_metadata)
+				} else {
+					// not symlink metadata
+					(entry.path(), maybe_symlink_metadata)
+				};
 
-			let (thumbnail, size) = if metadata.is_dir() {
-				let mut dir_entries = tokio::fs::read_dir(&path).await?;
-				let stream = poll_fn(|ctx| dir_entries.poll_next_entry(ctx).map(Result::transpose));
-				let mut count = 0;
-				stream
-					.try_for_each(|_entry| {
-						count += 1;
-						async { Ok(()) }
-					})
-					.await?;
-				(ThumbnailType::Directory, Size::Items(count))
-			} else {
-				let extension = path.extension().and_then(std::ffi::OsStr::to_str);
-				let thumbnail = extension
-					.and_then(crate::thumbnail::Type::from_extension)
-					.map_or_else(
-						|| {
-							if metadata.is_file() {
-								ThumbnailType::File
-							} else {
-								ThumbnailType::Unknown
-							}
-						},
-						ThumbnailType::Rich,
-					);
+				let (thumbnail, size) = if metadata.is_dir() {
+					let mut dir_entries = tokio::fs::read_dir(&path).await?;
+					let stream = poll_fn(|ctx| dir_entries.poll_next_entry(ctx).map(Result::transpose));
+					let mut count = 0;
+					stream
+						.try_for_each(|_entry| {
+							count += 1;
+							async { Ok(()) }
+						})
+						.await?;
+					(ThumbnailType::Directory, Size::Items(count))
+				} else {
+					let extension = path.extension().and_then(std::ffi::OsStr::to_str);
+					let thumbnail = extension
+						.and_then(crate::thumbnail::Type::from_extension)
+						.map_or_else(
+							|| {
+								if metadata.is_file() {
+									ThumbnailType::File
+								} else {
+									ThumbnailType::Unknown
+								}
+							},
+							ThumbnailType::Rich,
+						);
 
-				(thumbnail, Size::Bytes(metadata.len()))
-			};
+					(thumbnail, Size::Bytes(metadata.len()))
+				};
 
-			std::io::Result::Ok(Entry {
-				name,
-				size,
-				mtime: metadata.st_mtime(),
-				thumbnail,
-				link: symlink,
+				std::io::Result::Ok(Entry {
+					name,
+					size,
+					mtime: metadata.st_mtime(),
+					thumbnail,
+					link: symlink,
+				})
 			})
-		});
+			.map(|join_result| {
+				join_result
+					.map_err(Error::Tokio)
+					.and_then(|io_result| io_result.map_err(Error::Io))
+			}),
+		);
 	}
 
-	ret.try_collect().await
+	match ret.try_collect().await {
+		Ok(entries) => Ok(entries),
+		Err(Error::Tokio(error)) => std::panic::resume_unwind(error.into_panic()), /* assume that the task was not cancelled. */
+		Err(Error::Io(error)) => Err(error),
+	}
 }
 
 async fn index_directory(
