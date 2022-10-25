@@ -31,10 +31,8 @@ mod thumbnail;
 mod util;
 
 fn main() -> Result<()> {
-	let mut builder = tokio::runtime::Builder::new_multi_thread();
+	let mut builder = tokio::runtime::Builder::new_current_thread();
 	builder.enable_all();
-	#[cfg(debug_assertions)]
-	builder.worker_threads(1);
 	builder.build().unwrap().block_on(main_())
 }
 
