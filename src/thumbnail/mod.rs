@@ -22,12 +22,8 @@ pub enum Type {
 impl Type {
 	pub fn from_extension(extension: &str) -> Option<Self> {
 		match extension {
-			image
-				if ::image::ImageFormat::from_extension(image)
-					.map_or(false, |format| format.can_read()) =>
-			{
-				Some(Self::Image)
-			}
+			"avif" | "jpg" | "jpeg" | "png" | "gif" | "webp" | "tif" | "tiff" | "tga" | "dds" | "bmp"
+			| "ico" | "hdr" | "exr" | "pbm" | "pam" | "ppm" | "pgm" | "ff" | "farbfeld" => Some(Self::Image),
 			"mkv" | "webm" | "mp4" | "3gp" | "mpeg" | "mp2" | "mpe" | "mpv" | "ogg" | "avi" | "m4p"
 			| "m4v" | "mov" => Some(Self::Video),
 			_ => None,
