@@ -18,6 +18,8 @@ async fn handler(
 	extract::Extension(thumbnail_state): extract::Extension<Arc<crate::thumbnail::State>>,
 	req: Request<Body>,
 ) -> Result<Response, ErrorResponse> {
+	super::assert_path_safe(&user_path)?;
+
 	if config.exclude_dotfiles && super::is_hidden_path(&user_path) {
 		return Ok(http::StatusCode::NOT_FOUND.into_response());
 	}

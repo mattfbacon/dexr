@@ -29,3 +29,19 @@ fn starts_with_dot(name: &std::ffi::OsStr) -> bool {
 		.first()
 		.map_or(false, |&byte| byte == b'.')
 }
+
+fn assert_path_safe(path: &std::path::Path) -> Result<(), axum::response::ErrorResponse> {
+	use std::path::Component;
+
+	if !path.is_absolute()
+		|| path.components().any(|component| {
+			matches!(
+				component,
+				Component::CurDir | Component::ParentDir | Component::Prefix(..)
+			)
+		}) {
+		Err(crate::error::BadRequest("path traversal").into())
+	} else {
+		Ok(())
+	}
+}

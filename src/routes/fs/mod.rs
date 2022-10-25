@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 use std::os::linux::fs::MetadataExt as _;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::extract;
@@ -106,14 +106,7 @@ pub async fn handler(
 	extract::Query(sorting): extract::Query<Sorting>,
 	request: Request<Body>,
 ) -> Result<Response, ErrorResponse> {
-	// path traversals are eliminated by axum
-	assert!(
-		user_path.is_absolute()
-			&& !user_path.components().any(|component| matches!(
-				component,
-				Component::CurDir | Component::ParentDir | Component::Prefix(..)
-			))
-	);
+	super::assert_path_safe(&user_path)?;
 
 	if config.exclude_dotfiles && super::is_hidden_path(&user_path) {
 		return Ok(http::StatusCode::NOT_FOUND.into_response());

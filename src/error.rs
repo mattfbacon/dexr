@@ -48,3 +48,12 @@ impl<E: Flavor> IntoResponse for Io<E> {
 pub fn io_ctx<E>(context: &'static str) -> impl FnOnce(E) -> Io<E> {
 	move |error| Io { context, error }
 }
+
+#[derive(Debug, thiserror::Error)]
+pub struct BadRequest<S>(pub S);
+
+impl<S: ToString> IntoResponse for BadRequest<S> {
+	fn into_response(self) -> Response {
+		(HttpStatus::BAD_REQUEST, self.0.to_string()).into_response()
+	}
+}
