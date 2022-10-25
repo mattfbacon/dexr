@@ -16,9 +16,9 @@ bindable = { version = "0.1", features = ["with-serde"] }
 bytes = "1"
 figment = { version = "0.10", features = ["toml", "env"] }
 futures = "0.3"
-gstreamer = "0.18"
-gstreamer-app = "0.18"
-gstreamer-video = "0.18"
+gstreamer = "0.19"
+gstreamer-app = "0.19"
+gstreamer-video = "0.19"
 html-escape = "0.2"
 http = "0.2"
 hyper = "0.14"

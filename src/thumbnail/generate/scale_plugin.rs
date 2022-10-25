@@ -1,12 +1,14 @@
 use atomic_refcell::AtomicRefCell;
-use gst::prelude::{Cast as _, GstBinExtManual as _, ObjectExt, StaticType as _};
+use glib::subclass::InitializingObject;
+use gst::glib;
+use gst::prelude::{
+	Cast as _, GstBinExtManual as _, ObjectExt, PadExtManual as _, StaticType as _,
+};
 use gst::subclass::prelude::{
-	BinImpl, ElementImpl, GstObjectImpl, ObjectImpl, ObjectImplExt as _, ObjectSubclass,
-	ObjectSubclassIsExt as _,
+	BinImpl, ElementImpl, GstObjectImpl, ObjectImpl, ObjectSubclass, ObjectSubclassIsExt as _,
 };
 use gst::subclass::ElementMetadata;
 use gst::traits::ElementExt as _;
-use gst::{glib, PadExtManual as _};
 use once_cell::sync::Lazy;
 use {gstreamer as gst, gstreamer_video as gst_video};
 
@@ -81,7 +83,7 @@ fn sink_event_handler(
 		inner.capsfilter.set_property("caps", caps);
 	}
 
-	gst::Pad::event_default(pad.as_ref(), parent, event)
+	gst::Pad::event_default(pad, parent, event)
 }
 
 #[glib::object_subclass]
@@ -89,18 +91,17 @@ impl ObjectSubclass for ScaleElementImpl {
 	const NAME: &'static str = "ThumbnailScale";
 	type Type = ScaleElement;
 	type ParentType = gst::Bin;
-}
 
-impl ObjectImpl for ScaleElementImpl {
-	fn properties() -> &'static [glib::ParamSpec] {
-		&[]
-	}
+	fn instance_init(obj: &InitializingObject<Self>) {
+		// I have no idea what guarantees we are supposed to uphold.
+		// However, I know that the below functions work properly.
+		#[allow(unsafe_code)]
+		let obj = unsafe { obj.as_ref() };
 
-	fn constructed(&self, obj: &Self::Type) {
-		self.parent_constructed(obj);
-
-		let specify_size = gst::ElementFactory::make("capsfilter", None).unwrap();
-		specify_size.set_properties(&[("caps", &gst::Caps::new_simple("video/x-raw", &[]))]);
+		let specify_size = gst::ElementFactory::make("capsfilter")
+			.property("caps", gst::Caps::new_simple("video/x-raw", &[]))
+			.build()
+			.unwrap();
 
 		obj.add_many(&[&specify_size]).unwrap();
 
@@ -122,12 +123,14 @@ impl ObjectImpl for ScaleElementImpl {
 				.unwrap();
 		obj.add_pad(&src_pad).unwrap();
 
-		let old = self.0.borrow_mut().replace(Data {
+		let old = obj.imp().0.borrow_mut().replace(Data {
 			capsfilter: specify_size,
 		});
 		assert!(old.is_none(), "`constructed` called multiple times");
 	}
 }
+
+impl ObjectImpl for ScaleElementImpl {}
 
 impl GstObjectImpl for ScaleElementImpl {}
 
