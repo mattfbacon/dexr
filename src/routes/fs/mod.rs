@@ -113,7 +113,7 @@ pub async fn handler(
 	}
 
 	let relative_path = user_path.strip_prefix("/").unwrap();
-	let fs_path = config.index_root.join(&relative_path);
+	let fs_path = config.index_root.join(relative_path);
 	let metadata = tokio::fs::metadata(&fs_path)
 		.await
 		.map_err(io_ctx("reading metadata"))?;

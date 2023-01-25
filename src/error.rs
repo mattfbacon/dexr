@@ -23,7 +23,7 @@ impl Flavor for &io::Error {
 
 impl Flavor for Arc<io::Error> {
 	fn deref(&self) -> &io::Error {
-		&**self
+		self
 	}
 }
 
