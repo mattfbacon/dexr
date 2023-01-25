@@ -78,7 +78,9 @@ pub(in crate::thumbnail) fn generate(input: &Path, mut output: &File) -> Result<
 	);
 
 	tracing::trace!("starting pipeline");
-	pipeline.set_state(gst::State::Playing).unwrap();
+	pipeline
+		.set_state(gst::State::Playing)
+		.map_err(|_| GenerateError::Custom("pipeline failed"))?;
 
 	let bus = pipeline.bus().unwrap();
 	// timed_pop with None for the time blocks until there's a message
